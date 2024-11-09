@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Audio Recorder</title>
+    </head>
+    <body>
+        <h1>Audio Recorder</h1>
+        <button id="recordButton">Record</button>
+        <button id="stopButton" disabled>Stop</button>
+
+        <script>
+            const recordButton = document.getElementById('recordButton');
+            const stopButton = document.getElementById('stopButton');
+
+            let mediaRecorder;
+            let socket;
+
+            recordButton.addEventListener('click', async () => {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+
+                socket = new WebSocket('ws://localhost:8000/ws/audio');
+                socket.binaryType = 'arraybuffer';
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+                        socket.send(event.data);
+                    }
+                };
+
+                socket.onopen = () => {
+                    console.log('WebSocket connection opened');
+                };
+
+                socket.onclose = () => {
+                    console.log('WebSocket connection closed');
+                };
+
+                socket.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                };
+
+                socket.onmessage = (event) => {
+                    console.log('WebSocket message:', event.data);
+                };
+
+                mediaRecorder.start(100); // Collect 100ms of data at a time
+                recordButton.disabled = true;
+                stopButton.disabled = false;
+            });
+
+            stopButton.addEventListener('click', () => {
+                mediaRecorder.stop();
+                socket.close();
+                recordButton.disabled = false;
+                stopButton.disabled = true;
+            });
+        </script>
+    </body>
+</html>

@@ -1,74 +1,33 @@
-from fastapi import APIRouter, WebSocket
+from typing import List
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
 router = APIRouter()
 
-@router.get("/test")
-async def test():
-    html_content = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>WebSocket Audio</title>
-    </head>
-    <body>
-        <h1>WebSocket Audio Recorder</h1>
-        <button onclick="startRecording()">Start Recording</button>
-        <button onclick="stopRecording()">Stop Recording</button>
-        <script>
-            let mediaRecorder;
-            let socket = new WebSocket("ws://localhost:8000/ws/audio");
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
 
-            socket.onopen = function(event) {
-                console.log("WebSocket is open now.");
-            };
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
 
-            socket.onclose = function(event) {
-                console.log("WebSocket is closed now.");
-            };
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
 
-            socket.onerror = function(error) {
-                console.log("WebSocket error: " + error);
-            };
+    async def broadcast(self, data: bytes, sender: WebSocket):
+        for connection in self.active_connections:
+            if connection != sender:
+                await connection.send_bytes(data)
 
-            function startRecording() {
-                navigator.mediaDevices.getUserMedia({ audio: true })
-                    .then(function(stream) {
-                        mediaRecorder = new MediaRecorder(stream);
-                        mediaRecorder.ondataavailable = function(event) {
-                            if (event.data.size > 0) {
-                                socket.send(event.data);
-                            }
-                        };
-                        mediaRecorder.start(100); // Send data every 100ms
-                    })
-                    .catch(function(err) {
-                        console.log('The following error occurred: ' + err);
-                    });
-            }
-
-            function stopRecording() {
-                if (mediaRecorder) {
-                    mediaRecorder.stop();
-                }
-            }
-        </script>
-    </body>
-    </html>
-    """
-
-    return HTMLResponse(content=html_content)
+manager = ConnectionManager()
 
 @router.websocket("/ws/audio")
 async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
+    await manager.connect(websocket)
     try:
         while True:
             data = await websocket.receive_bytes()
-            print(data)
-
-            # Do something with the audio data @kailash-turimella
-    except Exception as e:
-        print(f"Connection closed: {e}")
-    finally:
-        await websocket.close()
+            await manager.broadcast(data, sender=websocket)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
