@@ -1,15 +1,12 @@
 from typing import List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
-from fastapi.responses import HTMLResponse
-from starlette.websockets import WebSocketState
 from dotenv import load_dotenv
+from starlette.websockets import WebSocketState
 import json
 import asyncio
 import os
 import websockets
 import ssl
-from ssl import SSLCertVerificationError
 
 router = APIRouter()
 load_dotenv()
@@ -24,24 +21,36 @@ class ConnectionManager:
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def broadcast(self, data: bytes, sender: WebSocket):
         for connection in self.active_connections:
-            if connection != sender:
-                await connection.send_bytes(data)
+            if connection != sender and connection.client_state == WebSocketState.CONNECTED:
+                try:
+                    await connection.send_bytes(data)
+                except Exception:
+                    pass  # Suppress errors during broadcasting
 
 manager = ConnectionManager()
 
-async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtocol, websocket: WebSocket):
-    response = await deepgram_socket.recv()
-    response_data = json.loads(response)
-    await websocket.send_json(response_data)
+async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtocol, websocket: WebSocket, data):
+    """Receive transcriptions from Deepgram and send to the client WebSocket."""
+    try:
+        await deepgram_socket.send(data)
+        response = await deepgram_socket.recv()
+        response_data = json.loads(response)
+        if websocket.client_state == WebSocketState.CONNECTED:
+            await websocket.send_json(response_data)
+    except Exception:
+        pass  # Suppress any errors to avoid printing task errors
 
 @router.websocket("/ws/audio")
 async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for receiving audio data and sending it to Deepgram."""
     await manager.connect(websocket)
     
+    # Create SSL context to ignore certificate verification (not recommended for production)
     ssl_context = ssl.SSLContext()
     ssl_context.verify_mode = ssl.CERT_NONE
 
@@ -55,14 +64,16 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         while True:
+            # Receive audio data from the client WebSocket
             data = await websocket.receive_bytes()
-            await deepgram_socket.send(data)
 
-            # print(data)
-            asyncio.create_task(deepgram_transcribe(deepgram_socket, websocket))
-            
+            # Run the transcription task without printing any errors
+            asyncio.create_task(deepgram_transcribe(deepgram_socket, websocket, data))
 
+            # Broadcast the data to other clients
             await manager.broadcast(data, sender=websocket)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
         await deepgram_socket.close()
+    except Exception:
+        pass  # Suppress other exceptions to avoid unwanted prints
