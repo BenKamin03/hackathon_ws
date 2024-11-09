@@ -131,7 +131,7 @@ async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtoco
     except Exception:
         pass  # Suppress any errors to avoid printing task errors
 
-@router.websocket("/ws/{meeting_id}")
+@router.websocket("/ws/meeting/{meeting_id}")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
 
     if meeting_id not in managers:

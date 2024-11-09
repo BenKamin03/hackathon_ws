@@ -25,7 +25,7 @@
                 });
                 mediaRecorder = new MediaRecorder(stream);
 
-                socket = new WebSocket("ws://localhost:8000/ws/test_meeting");
+                socket = new WebSocket("ws://localhost:8000/ws/meeting/test_meeting");
                 socket.binaryType = "arraybuffer";
 
                 mediaRecorder.ondataavailable = (event) => {
