@@ -8,8 +8,13 @@ import os
 import websockets
 import ssl
 
+from assistant import assistant
+
+
 router = APIRouter()
 load_dotenv()
+
+WAKE_WORD = "hey assistant"
 
 # Connection Manager for handling multiple WebSocket connections
 class ConnectionManager:
@@ -24,6 +29,12 @@ class ConnectionManager:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
+    async def send_all(self, data: object):
+        await asyncio.gather(
+            *[connection.send_json(data) for connection in self.active_connections if connection.client_state == WebSocketState.CONNECTED]
+        )
+        print("sent", data)
+
     async def broadcast(self, data: bytes, sender: WebSocket):
         for connection in self.active_connections:
             if connection != sender and connection.client_state == WebSocketState.CONNECTED:
@@ -32,16 +43,32 @@ class ConnectionManager:
                 except Exception:
                     pass  # Suppress errors during broadcasting
 
-manager = ConnectionManager()
+managers = {}
 
-async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtocol, websocket: WebSocket, data):
+async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtocol, manager: ConnectionManager, data):
     """Receive transcriptions from Deepgram and send to the client WebSocket."""
     try:
         await deepgram_socket.send(data)
         response = await deepgram_socket.recv()
         response_data = json.loads(response)
-        if websocket.client_state == WebSocketState.CONNECTED:
-            await websocket.send_json(response_data)
+
+        transcript = response_data["channel"]["alternatives"][0]['transcript']
+
+        if transcript != '': print(transcript)
+        if WAKE_WORD.lower() in transcript.lower():
+            print('generating text')
+            assistant_response = assistant.generate_text(transcript)
+            print(assistant_response)
+
+            await manager.send_all({
+                "assistant_response": assistant_response
+            })
+        else:
+            await manager.send_all({
+                "transcript": transcript
+            })
+            
+
     except Exception:
         pass  # Suppress any errors to avoid printing task errors
 
@@ -50,7 +77,16 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
     
     # TODO Add authentication logic here
     # use meeting id to find the meeting in the database
-    # check if the user is allowed to join the meeting
+    # check if the user is allowed to join the meeting by using the user id
+    # if the user is allowed to join the meeting, then allow the user to connect to the websocket
+    # else return an error message
+    # with the user id, store it in the connection manager to keep track of the user. this will be important to tell who is speaking
+
+
+    if meeting_id not in managers:
+        managers[meeting_id] = ConnectionManager()
+
+    manager = managers[meeting_id]
 
     """WebSocket endpoint for receiving audio data and sending it to Deepgram."""
     await manager.connect(websocket)
@@ -73,12 +109,15 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
             data = await websocket.receive_bytes()
 
             # Run the transcription task without printing any errors
-            asyncio.create_task(deepgram_transcribe(deepgram_socket, websocket, data))
+            asyncio.create_task(deepgram_transcribe(deepgram_socket, manager, data))
 
             # Broadcast the data to other clients
             await manager.broadcast(data, sender=websocket)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
         await deepgram_socket.close()
+
+        if len(manager.active_connections) == 0:
+            del managers[meeting_id]
     except Exception:
         pass  # Suppress other exceptions to avoid unwanted prints
