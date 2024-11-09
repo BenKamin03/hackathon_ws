@@ -31,6 +31,27 @@ class ConnectionManager:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
+            print("disconnected")
+            print(len(self.active_connections))
+
+            if len(self.active_connections) == 0:
+                transcript_text = "".join([data["channel"]["alternatives"][0]['transcript'] for data in self.transcript])
+
+                print(transcript_text)
+
+                summary = assistant.get_summary(transcript_text)
+                tagline = assistant.get_tagline(transcript_text)
+                tags = assistant.get_tags(transcript_text, ["AI", "meeting", "assistant"])
+                kanban = assistant.get_kanban(transcript_text)
+
+                print(summary)
+                print(tagline)
+                print(tags)
+                print(kanban)
+
+                del self
+
+
     async def send_all(self, data: object):
         self.transcript.append(data)
         await asyncio.gather(
@@ -39,7 +60,6 @@ class ConnectionManager:
         print("sent", json.dumps(data, indent=4))
 
     async def broadcast(self, data: bytes, sender: WebSocket):
-        self.transcript.append(data)
         for connection in self.active_connections:
             if connection != sender and connection.client_state == WebSocketState.CONNECTED:
                 try:
@@ -89,7 +109,7 @@ async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtoco
         await manager.send_all(response_data)
         if WAKE_WORD.lower() in transcript.lower():
             print("WAKE WORD DETECTED")
-            assistant_response = assistant.generate_text(transcript)
+            assistant_response = assistant.use_assistant(transcript)
             
             await manager.send_all({
                 "assistant_response": assistant_response
