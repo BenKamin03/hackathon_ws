@@ -17,11 +17,13 @@ async def test():
         <button onclick="stopRecording()">Stop Recording</button>
         <script>
             let mediaRecorder;
+            let audioContext;
             let socket = new WebSocket("ws://localhost:8000/ws/audio");
 
             socket.onopen = function(event) {
                 console.log("WebSocket is open now.");
             };
+            reader.readAsArrayBuffer(event.data);
 
             socket.onclose = function(event) {
                 console.log("WebSocket is closed now.");
@@ -31,9 +33,29 @@ async def test():
                 console.log("WebSocket error: " + error);
             };
 
+                let reader = new FileReader();
+                reader.onload = function() {
+                    let arrayBuffer = reader.result;
+                    audioContext.decodeAudioData(arrayBuffer, function(buffer) {
+                audioContext.decodeAudioData(arrayBuffer, function(buffer) {
+                    let source = audioContext.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(audioContext.destination);
+                    source.start(0);
+                }, function(e) {
+                    console.log("Error with decoding audio data" + e.err);
+                });
+            };
+
             function startRecording() {
                 navigator.mediaDevices.getUserMedia({ audio: true })
                     .then(function(stream) {
+                        if (!audioContext) {
+                            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        }
+                        if (audioContext.state === 'suspended') {
+                            audioContext.resume();
+                        }
                         mediaRecorder = new MediaRecorder(stream);
                         mediaRecorder.ondataavailable = function(event) {
                             if (event.data.size > 0) {
@@ -68,6 +90,8 @@ async def websocket_endpoint(websocket: WebSocket):
             print(data)
 
             # Do something with the audio data @kailash-turimella
+
+            await websocket.send_bytes(data)
     except Exception as e:
         print(f"Connection closed: {e}")
     finally:
