@@ -45,8 +45,13 @@ async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtoco
     except Exception:
         pass  # Suppress any errors to avoid printing task errors
 
-@router.websocket("/ws/audio")
-async def websocket_endpoint(websocket: WebSocket):
+@router.websocket("/ws/{meeting_id}")
+async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
+    
+    # TODO Add authentication logic here
+    # use meeting id to find the meeting in the database
+    # check if the user is allowed to join the meeting
+
     """WebSocket endpoint for receiving audio data and sending it to Deepgram."""
     await manager.connect(websocket)
     

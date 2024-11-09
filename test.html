@@ -21,7 +21,7 @@
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
 
-                socket = new WebSocket('ws://localhost:8000/ws/audio');
+                socket = new WebSocket('ws://localhost:8000/ws/meeting');
                 socket.binaryType = 'arraybuffer';
 
                 mediaRecorder.ondataavailable = (event) => {
