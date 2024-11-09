@@ -10,18 +10,25 @@ import websockets
 import ssl
 
 from assistant import assistant
-
+from firebase.firebase_connection import FirebaseConnection
+import traceback
 
 router = APIRouter()
 load_dotenv()
 
-WAKE_WORD = "hey assistant"
+WAKE_WORD = "okay flux"
+firebase = FirebaseConnection()
+managers = {}
 
-# Connection Manager for handling multiple WebSocket connections
 class ConnectionManager:
-    def __init__(self):
+    def __init__(self, meeting_id):
         self.active_connections: List[WebSocket] = []
         self.transcript = []
+        self.meeting_id = meeting_id
+
+        self.user_ids = firebase.get_meeting_users(meeting_id)
+        print(self.user_ids)
+        self.authenticated_sockets: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -44,30 +51,33 @@ class ConnectionManager:
                 tags = assistant.get_tags(transcript_text, ["AI", "meeting", "assistant"])
                 kanban = assistant.get_kanban(transcript_text)
 
-                print(summary)
-                print(tagline)
-                print(tags)
-                print(kanban)
+                firebase.add_meeting_data(self.meeting_id, {
+                    "summary": summary,
+                    "tagline": tagline,
+                    "tags": tags,
+                    "kanban": kanban
+                })
+
+                print("Ended meeting")
 
                 del self
-
+    def is_authed(self, websocket: WebSocket):
+        return websocket in self.authenticated_sockets
 
     async def send_all(self, data: object):
         self.transcript.append(data)
         await asyncio.gather(
-            *[connection.send_json(data) for connection in self.active_connections if connection.client_state == WebSocketState.CONNECTED]
+            *[connection.send_json(data) for connection in self.authenticated_sockets if connection.client_state == WebSocketState.CONNECTED]
         )
         print("sent", json.dumps(data, indent=4))
 
     async def broadcast(self, data: bytes, sender: WebSocket):
-        for connection in self.active_connections:
+        for connection in self.authenticated_sockets:
             if connection != sender and connection.client_state == WebSocketState.CONNECTED:
                 try:
                     await connection.send_bytes(data)
                 except Exception:
                     pass  # Suppress errors during broadcasting
-
-managers = {}
 
 async def text_to_speech(text: str, manager: ConnectionManager):
     """Convert text to speech using the Deepgram TTS API."""
@@ -123,17 +133,9 @@ async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtoco
 
 @router.websocket("/ws/{meeting_id}")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
-    
-    # TODO Add authentication logic here
-    # use meeting id to find the meeting in the database
-    # check if the user is allowed to join the meeting by using the user id
-    # if the user is allowed to join the meeting, then allow the user to connect to the websocket
-    # else return an error message
-    # with the user id, store it in the connection manager to keep track of the user. this will be important to tell who is speaking
-
 
     if meeting_id not in managers:
-        managers[meeting_id] = ConnectionManager()
+        managers[meeting_id] = ConnectionManager(meeting_id)
 
     manager = managers[meeting_id]
 
@@ -153,6 +155,19 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
     )
 
     try:
+        if not manager.is_authed(websocket):
+            credentials = await websocket.receive_json()
+
+            print(credentials)
+
+            if not int(credentials["user_id"]) in manager.user_ids:
+                await websocket.send_json({"error": "Unauthorized"})
+                await websocket.close()
+                return
+            
+            manager.authenticated_sockets.append(websocket)
+            await websocket.send_json({"auth": "success"})
+
         while True:
             # Receive audio data from the client WebSocket
             data = await websocket.receive_bytes()
@@ -168,5 +183,6 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
 
         if len(manager.active_connections) == 0:
             del managers[meeting_id]
-    except Exception:
+    except Exception as e:
+        print("Exception occurred:", traceback.format_exc())
         pass  # Suppress other exceptions to avoid unwanted prints

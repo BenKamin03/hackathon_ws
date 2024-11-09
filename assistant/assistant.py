@@ -87,7 +87,7 @@ def get_kanban(text):
 
         Each task should contain a title, description, status, assigned, tag, due date, is it a bug or feature and priority (low, medium, or high).
 
-        Return in a Json format. Only give me the JSON.
+        Return in a Json format. Only give me the JSON. Only add items if they are actual tasks, do not add placeholders.
     """
 
     prompt = f"{PRE_PROMPT}\n{text}"

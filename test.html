@@ -11,47 +11,62 @@
         <button id="stopButton" disabled>Stop</button>
 
         <script>
-            const recordButton = document.getElementById('recordButton');
-            const stopButton = document.getElementById('stopButton');
+            const recordButton = document.getElementById("recordButton");
+            const stopButton = document.getElementById("stopButton");
 
             let mediaRecorder;
             let socket;
 
-            recordButton.addEventListener('click', async () => {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            let authed = false;
+
+            recordButton.addEventListener("click", async () => {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                });
                 mediaRecorder = new MediaRecorder(stream);
 
-                socket = new WebSocket('ws://localhost:8000/ws/meeting');
-                socket.binaryType = 'arraybuffer';
+                socket = new WebSocket("ws://localhost:8000/ws/test_meeting");
+                socket.binaryType = "arraybuffer";
 
                 mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+                    if (
+                        event.data.size > 0 &&
+                        socket.readyState === WebSocket.OPEN
+                    ) {
                         socket.send(event.data);
                     }
                 };
 
                 socket.onopen = () => {
-                    console.log('WebSocket connection opened');
+                    console.log("WebSocket connection opened");
+                    socket.send(JSON.stringify({ user_id: "1" }));
                 };
 
                 socket.onclose = () => {
-                    console.log('WebSocket connection closed');
+                    console.log("WebSocket connection closed");
                 };
 
                 socket.onerror = (error) => {
-                    console.error('WebSocket error:', error);
+                    console.error("WebSocket error:", error);
                 };
 
                 socket.onmessage = (event) => {
-                    console.log('WebSocket message:', event.data);
-                };
+                    console.log("WebSocket message:", event.data);
 
-                mediaRecorder.start(100); // Collect 100ms of data at a time
-                recordButton.disabled = true;
-                stopButton.disabled = false;
+                    if (!authed) {
+                        if (JSON.parse(event.data).auth == "success") {
+                            console.log("Authenticating...");
+                            authed = true;
+
+                            mediaRecorder.start(100); // Collect 100ms of data at a time
+                            recordButton.disabled = true;
+                            stopButton.disabled = false;
+                        }
+                    }
+                };
             });
 
-            stopButton.addEventListener('click', () => {
+            stopButton.addEventListener("click", () => {
                 mediaRecorder.stop();
                 socket.close();
                 recordButton.disabled = false;
