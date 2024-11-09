@@ -1,4 +1,5 @@
 from typing import List
+import aiohttp
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from dotenv import load_dotenv
 from starlette.websockets import WebSocketState
@@ -20,6 +21,7 @@ WAKE_WORD = "hey assistant"
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        self.transcript = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -30,12 +32,14 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def send_all(self, data: object):
+        self.transcript.append(data)
         await asyncio.gather(
             *[connection.send_json(data) for connection in self.active_connections if connection.client_state == WebSocketState.CONNECTED]
         )
-        print("sent", data)
+        print("sent", json.dumps(data, indent=4))
 
     async def broadcast(self, data: bytes, sender: WebSocket):
+        self.transcript.append(data)
         for connection in self.active_connections:
             if connection != sender and connection.client_state == WebSocketState.CONNECTED:
                 try:
@@ -44,6 +48,31 @@ class ConnectionManager:
                     pass  # Suppress errors during broadcasting
 
 managers = {}
+
+async def text_to_speech(text: str, manager: ConnectionManager):
+    """Convert text to speech using the Deepgram TTS API."""
+    print("connecting to tts")
+    try:
+        ssl_context = ssl.SSLContext()
+        ssl_context.verify_mode = ssl.CERT_NONE
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                'https://api.deepgram.com/v1/speak?model=aura-asteria-en',
+                headers={
+                    'Authorization': f'Token {os.getenv("DEEPGRAM_API_KEY")}',
+                    'Content-Type': 'application/json'
+                },
+                json={"text": text},
+                ssl=ssl_context
+            ) as response:
+                if response.status == 200:
+                    audio_data = await response.read()
+                    await manager.broadcast(audio_data, sender=None)
+                else:
+                    print(f"Error: {response.status}")
+    except Exception as e:
+        print(e)
+    
 
 async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtocol, manager: ConnectionManager, data):
     """Receive transcriptions from Deepgram and send to the client WebSocket."""
@@ -54,19 +83,19 @@ async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtoco
 
         transcript = response_data["channel"]["alternatives"][0]['transcript']
 
-        if transcript != '': print(transcript)
-        if WAKE_WORD.lower() in transcript.lower():
-            print('generating text')
-            assistant_response = assistant.generate_text(transcript)
-            print(assistant_response)
+        if transcript == '': return
 
+        print(transcript)
+        await manager.send_all(response_data)
+        if WAKE_WORD.lower() in transcript.lower():
+            print("WAKE WORD DETECTED")
+            assistant_response = assistant.generate_text(transcript)
+            
             await manager.send_all({
                 "assistant_response": assistant_response
             })
-        else:
-            await manager.send_all({
-                "transcript": transcript
-            })
+
+            await text_to_speech(assistant_response, manager)
             
 
     except Exception:

@@ -9,6 +9,9 @@ model = genai.GenerativeModel("gemini-1.5-flash")
 
 PRE_PROMPT = """
 You are an AI assistant that can help me with my tasks and answering questions during a meeting.
+Your text is going to go to a text to speech service to be converted to speech.
+Do not include emojis or special characters in your responses.
+You should respond concisely and clearly, just like Siri would. Provide helpful and accurate information.
 """
 
 def generate_text(prompt):
@@ -19,4 +22,6 @@ def generate_text(prompt):
         response = model.generate_content(prompt)
     except Exception as e:
         response = str(e)
-    return response
+    return response.candidates[0].content.parts[0].text
+
+print(generate_text("What is the capital of France?"))
