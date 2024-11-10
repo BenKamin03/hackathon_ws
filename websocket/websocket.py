@@ -117,12 +117,12 @@ async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtoco
 
         print(transcript)
         await manager.send_all(response_data)
-        if WAKE_WORD.lower() in transcript.lower():
+        if WAKE_WORD.lower() in transcript.lower().replace(".", "").replace(",", "").replace("!", "").replace("?", "").replace(":", "").replace(";", "").replace("-", "").replace("'", "").replace("\"", "").replace("(", "").replace(")", "").replace("[", "").replace("]", "").replace("{", "").replace("}", "").replace("/", "").replace("\\", "").replace("|", "").replace("@", "").replace("#", "").replace("$", "").replace("%", "").replace("^", "").replace("&", "").replace("*", "").replace("_", "").replace("+", "").replace("=", "").replace("<", "").replace(">", "").replace("`", "").replace("~", "").replace("", ""):
             print("WAKE WORD DETECTED")
             assistant_response = assistant.use_assistant(transcript)
             
             await manager.send_all({
-                "assistant_response": assistant_response
+            "assistant_response": assistant_response
             })
 
             await text_to_speech(assistant_response, manager)
