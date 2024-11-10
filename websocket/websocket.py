@@ -57,7 +57,8 @@ class ConnectionManager:
                     "summary": summary,
                     "tagline": tagline,
                     "tags": tags,
-                    "kanban": kanban
+                    "kanban": kanban,
+                    "transcript": transcript_text
                 })
 
                 print("Ended meeting")

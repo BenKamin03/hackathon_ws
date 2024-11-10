@@ -29,7 +29,7 @@ class FirebaseConnection:
         return users.val()
     
     def add_meeting_data(self, meeting_id, data):
-        self.db.child("meetings").child(meeting_id).set(data)
+        self.db.child("meetings").child(meeting_id).update(data)
 
     def get_meeting_users(self, meeting_id):
         user_ids = []
