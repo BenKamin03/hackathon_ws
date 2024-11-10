@@ -25,9 +25,9 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
         self.transcript = []
         self.meeting_id = meeting_id
+        self.tags = [user["name"] for user in firebase.get_tags(meeting_id)]
 
         self.user_ids = firebase.get_meeting_users(meeting_id)
-        print(self.user_ids)
         self.authenticated_sockets: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
@@ -37,6 +37,7 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+            self.broadcast(json.dumps({"user_id": websocket.user_id, "message": "left"}).encode(), sender=None)
 
             print("disconnected")
             print(len(self.active_connections))
@@ -48,7 +49,7 @@ class ConnectionManager:
 
                 summary = assistant.get_summary(transcript_text)
                 tagline = assistant.get_tagline(transcript_text)
-                tags = assistant.get_tags(transcript_text, ["AI", "meeting", "assistant"])
+                tags = assistant.get_tags(transcript_text, self.tags)
                 kanban = assistant.get_kanban(transcript_text)
 
                 firebase.add_meeting_data(self.meeting_id, {
@@ -119,10 +120,11 @@ async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtoco
         await manager.send_all(response_data)
         if WAKE_WORD.lower() in transcript.lower().replace(".", "").replace(",", "").replace("!", "").replace("?", "").replace(":", "").replace(";", "").replace("-", "").replace("'", "").replace("\"", "").replace("(", "").replace(")", "").replace("[", "").replace("]", "").replace("{", "").replace("}", "").replace("/", "").replace("\\", "").replace("|", "").replace("@", "").replace("#", "").replace("$", "").replace("%", "").replace("^", "").replace("&", "").replace("*", "").replace("_", "").replace("+", "").replace("=", "").replace("<", "").replace(">", "").replace("`", "").replace("~", "").replace("", ""):
             print("WAKE WORD DETECTED")
-            assistant_response = assistant.use_assistant(transcript)
+            transcript_text = "".join([data["channel"]["alternatives"][0]['transcript'] for data in manager.transcript])
+            assistant_response = assistant.use_assistant(transcript_text)
             
             await manager.send_all({
-            "assistant_response": assistant_response
+                "assistant_response": assistant_response
             })
 
             await text_to_speech(assistant_response, manager)
@@ -160,13 +162,14 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
 
             print(credentials)
 
-            if not int(credentials["user_id"]) in manager.user_ids:
+            if not str(credentials["user_id"]) in manager.user_ids:
                 await websocket.send_json({"error": "Unauthorized"})
                 await websocket.close()
                 return
             
             manager.authenticated_sockets.append(websocket)
             await websocket.send_json({"auth": "success"})
+            manager.broadcast(json.dumps({"user_id": credentials["user_id"], "message": "joined"}).encode())
 
         while True:
             # Receive audio data from the client WebSocket
@@ -180,9 +183,6 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
         await deepgram_socket.close()
-
-        if len(manager.active_connections) == 0:
-            del managers[meeting_id]
     except Exception as e:
         print("Exception occurred:", traceback.format_exc())
         pass  # Suppress other exceptions to avoid unwanted prints
