@@ -25,10 +25,11 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
         self.transcript = []
         self.meeting_id = meeting_id
-        self.tags = [user["name"] for user in firebase.get_tags(meeting_id)]
+        self.tags = [tag["name"] for tag in firebase.get_tags(meeting_id)]
 
         self.user_ids = firebase.get_meeting_users(meeting_id)
         self.authenticated_sockets: List[WebSocket] = []
+        self.authenticated_ids = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -37,7 +38,7 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-            self.broadcast(json.dumps({"user_id": websocket.user_id, "message": "left"}).encode(), sender=None)
+            self.broadcast(json.dumps({"user_id": self.authenticated_ids[self.authenticated_sockets.index(websocket)], "message": "left"}).encode(), sender=None)
 
             print("disconnected")
             print(len(self.active_connections))
@@ -135,6 +136,7 @@ async def deepgram_transcribe(deepgram_socket: websockets.WebSocketClientProtoco
 
 @router.websocket("/ws/meeting/{meeting_id}")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
+    print(meeting_id)
 
     if meeting_id not in managers:
         managers[meeting_id] = ConnectionManager(meeting_id)
@@ -168,8 +170,9 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
                 return
             
             manager.authenticated_sockets.append(websocket)
+            manager.authenticated_ids.append(credentials["user_id"])
             await websocket.send_json({"auth": "success"})
-            manager.broadcast(json.dumps({"user_id": credentials["user_id"], "message": "joined"}).encode())
+            manager.broadcast(json.dumps({"user_id": credentials["user_id"], "message": "joined"}).encode(), sender=websocket)
 
         while True:
             # Receive audio data from the client WebSocket

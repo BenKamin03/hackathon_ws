@@ -32,11 +32,17 @@ class FirebaseConnection:
         self.db.child("meetings").child(meeting_id).set(data)
 
     def get_meeting_users(self, meeting_id):
-        users = self.db.child('meetingUsers').order_by_child("meetingId").equal_to(meeting_id).get()
-        user_ids = [str(user.val()['user_id']) for user in users.each()]
+        user_ids = []
+        users = self.db.child('meetingUsers').order_by_child("meetingId").equal_to(meeting_id).get().val()
+        for key in users:
+            user_ids.append(users[key]["userId"])
+        
         return user_ids
     
     def get_tags(self, meeting_id):
         tenant_id = self.db.child("meetings").child(meeting_id).get().val()["tenantId"]
         tags = self.db.child('tags').order_by_child("tenantId").equal_to(tenant_id).get()
-        return tags.val()
+        tag_list = []
+        for tag in tags.each():
+            tag_list.append(tag.val())
+        return tag_list
