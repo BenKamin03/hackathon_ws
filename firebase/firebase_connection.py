@@ -40,7 +40,11 @@ class FirebaseConnection:
         return user_ids
     
     def get_tags(self, meeting_id):
-        tenant_id = self.db.child("meetings").child(meeting_id).get().val()["tenantId"]
+
+        tenant = self.db.child("meetings").child(meeting_id).get().val()
+        print(tenant)
+        tenant_id = tenant["tenantId"]
+        print(tenant_id)
         tags = self.db.child('tags').order_by_child("tenantId").equal_to(tenant_id).get()
         tag_list = []
         for tag in tags.each():
